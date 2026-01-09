@@ -1,5 +1,5 @@
 import apiRequest from './index'
-import { AIAnalysis } from '../stores/transcription'
+import type { AIAnalysis } from '../stores/transcription'
 
 interface AnalyzeSpeechDto {
   model_name: string
@@ -18,21 +18,24 @@ export const aiApi = {
   /**
    * 生成AI分析
    */
-  analyzeSpeech: (speechId: string, data: AnalyzeSpeechDto) => {
-    return apiRequest.post<AIAnalysis>(`/speeches/${speechId}/analyze`, data)
+  analyzeSpeech: async (speechId: string, data: AnalyzeSpeechDto) => {
+    const response = await apiRequest.post<AIAnalysis>(`/speeches/${speechId}/analyze`, data)
+    return response.data
   },
   
   /**
    * 获取发言的AI分析列表
    */
-  getAnalysisList: (speechId: string) => {
-    return apiRequest.get<AIAnalysis[]>(`/speeches/${speechId}/analyses`)
+  getAnalysisList: async (speechId: string) => {
+    const response = await apiRequest.get<AIAnalysis[]>(`/speeches/${speechId}/analyses`)
+    return response.data
   },
   
   /**
    * 获取支持的AI模型列表
    */
-  getAIModels: () => {
-    return apiRequest.get<AIModel[]>('/ai/models')
+  getAIModels: async () => {
+    const response = await apiRequest.get<AIModel[]>('/ai/models')
+    return response.data
   }
 }

@@ -1,5 +1,5 @@
 import apiRequest from './index'
-import { Meeting } from '../stores/meeting'
+import type { Meeting } from '../stores/meeting'
 
 interface CreateMeetingDto {
   name: string
@@ -11,33 +11,37 @@ export const meetingApi = {
   /**
    * 创建会议
    */
-  createMeeting: (data: CreateMeetingDto) => {
-    return apiRequest.post<Meeting>('/sessions', data)
+  createMeeting: async (data: CreateMeetingDto) => {
+    const response = await apiRequest.post<Meeting>('/sessions', data)
+    return response.data
   },
   
   /**
    * 获取会议列表
    */
-  getMeetingList: (params?: {
+  getMeetingList: async (params?: {
     page?: number
     page_size?: number
     status?: 'active' | 'ended'
     keyword?: string
   }) => {
-    return apiRequest.get<{ total: number; page: number; page_size: number; data: Meeting[] }>('/sessions', { params })
+    const response = await apiRequest.get<{ total: number; page: number; page_size: number; data: Meeting[] }>('/sessions', { params })
+    return response.data
   },
   
   /**
    * 获取会议详情
    */
-  getMeetingDetail: (id: string) => {
-    return apiRequest.get<Meeting>(`/sessions/${id}`)
+  getMeetingDetail: async (id: string) => {
+    const response = await apiRequest.get<Meeting>(`/sessions/${id}`)
+    return response.data
   },
   
   /**
    * 结束会议
    */
-  endMeeting: (id: string) => {
-    return apiRequest.post<Meeting>(`/sessions/${id}/end`)
+  endMeeting: async (id: string) => {
+    const response = await apiRequest.post<Meeting>(`/sessions/${id}/end`)
+    return response.data
   }
 }

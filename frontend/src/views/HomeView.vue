@@ -36,11 +36,16 @@
     
     <div class="meeting-list">
       <h2>会议列表</h2>
-      <el-empty v-if="meetings.length === 0" description="暂无会议" />
+      <el-skeleton :rows="3" animated v-if="loading" />
+      <el-empty v-else-if="meetings.length === 0" description="暂无会议" />
       <el-card v-for="meeting in meetings" :key="meeting.id" class="meeting-card">
         <h3>{{ meeting.name }}</h3>
-        <p>状态：{{ meeting.status }}</p>
-        <p>创建时间：{{ meeting.createdAt }}</p>
+        <p>状态：
+          <el-tag :type="meeting.status === 'active' ? 'success' : 'info'">
+            {{ meeting.status === 'active' ? '进行中' : '已结束' }}
+          </el-tag>
+        </p>
+        <p>创建时间：{{ new Date(meeting.createdAt).toLocaleString() }}</p>
         <el-button type="primary" @click="joinMeeting(meeting.id)">进入会议</el-button>
       </el-card>
     </div>
@@ -48,12 +53,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { meetingApi } from '../api/meeting'
+import type { Meeting } from '../stores/meeting'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const showCreateDialog = ref(false)
-const meetings = ref([])
+const loading = ref(false)
+const meetings = ref<Meeting[]>([])
 
 const meetingForm = ref({
   name: '',
@@ -61,17 +70,57 @@ const meetingForm = ref({
   transcriptionLanguage: 'zh-CN'
 })
 
-const createMeeting = () => {
-  // 这里将在后续实现API调用
-  console.log('创建会议:', meetingForm.value)
-  showCreateDialog.value = false
-  // 暂时跳转到模拟的会议页面
-  router.push('/meeting/1')
+// 获取会议列表
+const fetchMeetings = async () => {
+  loading.value = true
+  try {
+    const response = await meetingApi.getMeetingList()
+    meetings.value = response.data
+  } catch (error: any) {
+    ElMessage.error(error.message || '获取会议列表失败')
+    console.error('获取会议列表失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 创建会议
+const createMeeting = async () => {
+  if (!meetingForm.value.name) {
+    ElMessage.warning('请输入会议名称')
+    return
+  }
+  
+  loading.value = true
+  try {
+    const meeting = await meetingApi.createMeeting({
+      name: meetingForm.value.name,
+      recording_quality: meetingForm.value.recordingQuality,
+      transcription_language: meetingForm.value.transcriptionLanguage
+    })
+    
+    ElMessage.success('会议创建成功')
+    showCreateDialog.value = false
+    fetchMeetings()
+    
+    // 跳转到会议页面
+    router.push(`/meeting/${meeting.id}`)
+  } catch (error: any) {
+    ElMessage.error(error.message || '创建会议失败')
+    console.error('创建会议失败:', error)
+  } finally {
+    loading.value = false
+  }
 }
 
 const joinMeeting = (id: string) => {
   router.push(`/meeting/${id}`)
 }
+
+// 页面加载时获取会议列表
+onMounted(() => {
+  fetchMeetings()
+})
 </script>
 
 <style scoped>

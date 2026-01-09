@@ -1,81 +1,87 @@
-import {
-  WebSocketGateway,
-  WebSocketServer,
-  SubscribeMessage,
-  OnGatewayConnection,
-  OnGatewayDisconnect,
-  OnGatewayInit,
-} from '@nestjs/websockets';
+import { WebSocketGateway, WebSocketServer, SubscribeMessage, OnGatewayConnection, OnGatewayDisconnect, MessageBody } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { Logger } from '@nestjs/common';
+import { SpeechToTextService } from '../speech-to-text/speech-to-text.service';
 
 @WebSocketGateway({
   cors: {
     origin: '*',
   },
-  path: '/ws',
 })
-export class WebsocketGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
-  @WebSocketServer() server: Server;
+export class WebsocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer()
+  server: Server;
 
-  private socketMap: Map<string, Socket> = new Map();
+  private logger = new Logger(WebsocketGateway.name);
+  private clientStreams = new Map<string, { stream: any; sessionId: string }>();
 
-  afterInit(server: Server) {
-    console.log('WebSocket Gateway initialized');
-  }
+  constructor(private speechToTextService: SpeechToTextService) {}
 
   handleConnection(client: Socket) {
-    console.log(`Client connected: ${client.id}`);
-    this.socketMap.set(client.id, client);
+    this.logger.log(`Client connected: ${client.id}`);
+    client.emit('connection', { message: 'Connected to WebSocket server' });
   }
 
   handleDisconnect(client: Socket) {
-    console.log(`Client disconnected: ${client.id}`);
-    this.socketMap.delete(client.id);
+    this.logger.log(`Client disconnected: ${client.id}`);
+    // 清理客户端流
+    const streamInfo = this.clientStreams.get(client.id);
+    if (streamInfo) {
+      streamInfo.stream?.end();
+      this.clientStreams.delete(client.id);
+    }
   }
 
-  /**
-   * 处理客户端发送的音频流数据
-   */
-  @SubscribeMessage('audioStream')
-  handleAudioStream(client: Socket, data: {
-    sessionId: string;
-    audioChunk: Buffer;
-  }) {
-    // 这里将在后续实现语音转写处理逻辑
-    // 暂时模拟返回转写结果
-    const mockTranscription = {
-      speaker: '发言者1',
-      content: '这是一段模拟的语音转写结果',
-      timestamp: new Date().toISOString(),
-      confidence: 0.95,
-    };
-
-    client.emit('transcriptionResult', mockTranscription);
+  @SubscribeMessage('join_session')
+  handleJoinSession(client: Socket, payload: { session_id: string }) {
+    this.logger.log(`Client ${client.id} joined session: ${payload.session_id}`);
+    client.join(`session_${payload.session_id}`);
+    return { status: 'ok', message: `Joined session ${payload.session_id}` };
   }
 
-  /**
-   * 处理客户端发送的开始录音请求
-   */
-  @SubscribeMessage('startRecording')
-  handleStartRecording(client: Socket, data: {
-    sessionId: string;
-  }) {
-    console.log(`Start recording for session: ${data.sessionId}`);
-    // 这里将在后续实现开始录音的处理逻辑
-    client.emit('recordingStarted', { sessionId: data.sessionId });
+  @SubscribeMessage('start_recording')
+  async handleStartRecording(client: Socket, payload: { session_id: string }) {
+    this.logger.log(`Client ${client.id} started recording for session: ${payload.session_id}`);
+    
+    // 创建语音识别流
+    const speechStream = await this.speechToTextService.createSpeechRecognitionStream(
+      (result: any) => {
+        // 向会话中的所有客户端发送转写结果
+        this.server.to(`session_${payload.session_id}`).emit('transcription', result);
+      }
+    );
+
+    this.clientStreams.set(client.id, { 
+      stream: speechStream, 
+      sessionId: payload.session_id 
+    });
+    
+    return { status: 'ok', message: 'Recording started' };
   }
 
-  /**
-   * 处理客户端发送的停止录音请求
-   */
-  @SubscribeMessage('stopRecording')
-  handleStopRecording(client: Socket, data: {
-    sessionId: string;
-  }) {
-    console.log(`Stop recording for session: ${data.sessionId}`);
-    // 这里将在后续实现停止录音的处理逻辑
-    client.emit('recordingStopped', { sessionId: data.sessionId });
+  @SubscribeMessage('stop_recording')
+  handleStopRecording(client: Socket) {
+    this.logger.log(`Client ${client.id} stopped recording`);
+    
+    // 结束语音识别流
+    const streamInfo = this.clientStreams.get(client.id);
+    if (streamInfo) {
+      streamInfo.stream?.end();
+      this.clientStreams.delete(client.id);
+    }
+    
+    return { status: 'ok', message: 'Recording stopped' };
+  }
+
+  @SubscribeMessage('audio_chunk')
+  handleAudioChunk(client: Socket, @MessageBody() payload: { chunk: Buffer }) {
+    // 将音频数据写入语音识别流
+    const streamInfo = this.clientStreams.get(client.id);
+    if (streamInfo && streamInfo.stream) {
+      streamInfo.stream.write(payload.chunk);
+    }
+    
+    // 不需要返回响应，因为我们会通过 'transcription' 事件实时发送结果
+    return { status: 'ok' };
   }
 }
