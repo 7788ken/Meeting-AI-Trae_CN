@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id                   String   @id @default(uuid())
+  name                 String
+  status               String   @default("active")
+  recording_quality    String   @default("medium")
+  transcription_language String  @default("zh-CN")
+  created_at           DateTime @default(now())
+  started_at           DateTime?
+  ended_at             DateTime?
+  duration             Int?
+  speakers_count       Int?     @default(0)
+  speeches_count       Int?     @default(0)
+
+  @@map("sessions")
+}
+
+model Speaker {
+  id         String   @id @default(uuid())
+  session_id String
+  name       String
+  color      String   @default("#1890ff")
+  is_default Boolean  @default(false)
+  created_at DateTime @default(now())
+
+  @@map("speakers")
+}
