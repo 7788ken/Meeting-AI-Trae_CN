@@ -1,8 +1,8 @@
-import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios'
+import axios, { type AxiosInstance, type InternalAxiosRequestConfig, type AxiosRequestConfig, type AxiosResponse } from 'axios'
 
 // 创建Axios实例
 const apiClient: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1',
+  baseURL: '/api/v1',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json'
@@ -11,11 +11,12 @@ const apiClient: AxiosInstance = axios.create({
 
 // 请求拦截器
 apiClient.interceptors.request.use(
-  (config) => {
-    // 这里可以添加认证token等
+  (config: InternalAxiosRequestConfig) => {
+    // 添加请求日志，用于调试
+    console.log('API Request:', config.method?.toUpperCase(), config.url, config.data || '')
     return config
   },
-  (error) => {
+  (error: any) => {
     return Promise.reject(error)
   }
 )
@@ -23,9 +24,10 @@ apiClient.interceptors.request.use(
 // 响应拦截器
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
-    return response.data
+    console.log('API Response:', response.status, response.data)
+    return response
   },
-  (error) => {
+  (error: any) => {
     let errorMessage = '请求失败'
     if (error.response) {
       // 服务器返回错误状态码
@@ -45,22 +47,24 @@ apiClient.interceptors.response.use(
 )
 
 // 封装请求方法
-const apiRequest = {
-  get: <T>(url: string, config?: AxiosRequestConfig) => {
-    return apiClient.get<T>(url, config)
+export default {
+  get: async <T>(url: string, config?: AxiosRequestConfig): Promise<T> => {
+    const response = await apiClient.get(url, config)
+    return response.data as T
   },
   
-  post: <T>(url: string, data?: any, config?: AxiosRequestConfig) => {
-    return apiClient.post<T>(url, data, config)
+  post: async <T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
+    const response = await apiClient.post(url, data, config)
+    return response.data as T
   },
   
-  put: <T>(url: string, data?: any, config?: AxiosRequestConfig) => {
-    return apiClient.put<T>(url, data, config)
+  put: async <T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
+    const response = await apiClient.put(url, data, config)
+    return response.data as T
   },
   
-  delete: <T>(url: string, config?: AxiosRequestConfig) => {
-    return apiClient.delete<T>(url, config)
+  delete: async <T>(url: string, config?: AxiosRequestConfig): Promise<T> => {
+    const response = await apiClient.delete(url, config)
+    return response.data as T
   }
 }
-
-export default apiRequest

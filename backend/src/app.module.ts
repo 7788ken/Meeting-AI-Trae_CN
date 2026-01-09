@@ -3,7 +3,6 @@ import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { PrismaModule } from './prisma/prisma.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { SpeechProcessingModule } from './speech-processing/speech-processing.module';
@@ -16,7 +15,6 @@ import { SpeechesModule } from './speeches/speeches.module';
       isGlobal: true,
     }),
     MongooseModule.forRoot(process.env.MONGO_URI || 'mongodb://localhost:27017/ai_meeting_assistant'),
-    PrismaModule,
     SessionsModule,
     WebsocketModule,
     SpeechProcessingModule,

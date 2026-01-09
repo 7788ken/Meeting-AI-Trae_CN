@@ -4,6 +4,9 @@
       <h1>会议：{{ meetingName }}</h1>
       <div class="meeting-controls">
         <el-button type="success" @click="toggleRecording" :disabled="isRecordingDisabled">
+          <span v-if="isRecording" class="recording-indicator">
+            <span class="microphone-icon" :class="{ 'recording': isRecording, 'voice-detected': isVoiceDetected }">🎤</span>
+          </span>
           {{ isRecording ? '停止录音' : '开始录音' }}
         </el-button>
         <el-button type="danger" @click="endMeeting">结束会议</el-button>
@@ -76,7 +79,7 @@
               </el-tab-pane>
               <el-tab-pane label="深度分析" name="deepAnswer">
                 <div class="analysis-content">
-                  <h3>深度回答：</h3>
+                  <h3>深度分析：</h3>
                   <pre>{{ aiResult.deepAnswer }}</pre>
                 </div>
               </el-tab-pane>
@@ -105,6 +108,7 @@ import type { AIModel } from '../api/ai'
 import type { Speech, AIAnalysis } from '../stores/transcription'
 import { ElMessage } from 'element-plus'
 import { AudioCaptureService } from '../services/audio-capture'
+import { io, Socket } from 'socket.io-client'
 
 const router = useRouter()
 const meetingStore = useMeetingStore()
@@ -122,9 +126,11 @@ const transcriptions = ref<Speech[]>([])
 const showAIResult = ref(false)
 const selectedSpeech = ref<Speech | null>(null)
 const aiResult = ref<AIAnalysis | null>(null)
-const socket = ref<WebSocket | null>(null)
+const socket = ref<Socket | null>(null)
 const isConnected = ref(false)
 const transcriptionContainer = ref<HTMLElement | null>(null)
+const isVoiceDetected = ref(false)
+const voiceDetectionTimeout = ref<number | null>(null)
 // 用于跟踪用户是否手动滚动
 const isUserScrolling = ref(false)
 
@@ -147,64 +153,65 @@ const fetchMeetingDetail = async () => {
   }
 }
 
-// 初始化WebSocket连接
+// 初始化Socket.io连接
 const initWebSocket = () => {
   try {
-    // 这里使用模拟的WebSocket服务器地址，实际项目中需要替换为真实地址
-    socket.value = new WebSocket(`ws://localhost:3000`)
+    // 使用Socket.io连接到后端服务器，通过Vite代理
+    socket.value = io('http://localhost:5102', {
+      transports: ['websocket'],
+      autoConnect: true
+    })
     
-    socket.value.onopen = () => {
-      console.log('WebSocket连接已建立')
+    socket.value.on('connect', () => {
+      console.log('Socket.io连接已建立')
       isConnected.value = true
       // 加入会话
-      socket.value?.send(JSON.stringify({
-        type: 'join_session',
-        payload: { session_id: props.id }
-      }))
-    }
+      socket.value?.emit('join_session', { session_id: props.id })
+    })
     
-    socket.value.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      console.log('WebSocket消息:', data)
+    socket.value.on('transcription', (result: any) => {
+      console.log('Socket.io消息:', result)
       
-      if (data.type === 'transcription') {
-        const result = data.payload
-        // 为发言者分配颜色
-        if (!speakerColorMap.has(result.speaker)) {
-          const colorIndex = speakerColorMap.size % speakerColors.length
-          speakerColorMap.set(result.speaker, speakerColors[colorIndex] || '#1890ff')
-        }
-        
-        // 更新转写记录
-        const transcription = {
-          id: Date.now().toString(),
-          speaker: result.speaker,
-          content: result.text,
-          startTime: new Date().toISOString(),
-          endTime: new Date().toISOString(),
-          confidence: result.confidence,
-          color: speakerColorMap.get(result.speaker) || '#1890ff'
-        }
-        
-        transcriptions.value.push(transcription)
-        transcriptionStore.addTranscription(transcription)
-        
-        // 自动滚动到底部
-        scrollToBottom()
+      // 直接在控制台显示接收到的转写结果，便于调试
+      console.log('接收到转写结果:', result.text)
+      
+      // 为发言者分配颜色
+      if (!speakerColorMap.has(result.speaker)) {
+        const colorIndex = speakerColorMap.size % speakerColors.length
+        speakerColorMap.set(result.speaker, speakerColors[colorIndex] || '#1890ff')
       }
-    }
+      
+      // 更新转写记录
+      const transcription = {
+        id: Date.now().toString(),
+        speaker: result.speaker,
+        content: result.text,
+        startTime: new Date().toISOString(),
+        endTime: new Date().toISOString(),
+        confidence: result.confidence,
+        color: speakerColorMap.get(result.speaker) || '#1890ff'
+      }
+      
+      console.log('将转写结果添加到数组:', transcription)
+      transcriptions.value.push(transcription)
+      transcriptionStore.addTranscription(transcription)
+      console.log('当前转写记录数量:', transcriptions.value.length)
+      
+      // 自动滚动到底部
+      scrollToBottom()
+    })
     
-    socket.value.onclose = () => {
-      console.log('WebSocket连接已关闭')
+    socket.value.on('disconnect', () => {
+      console.log('Socket.io连接已关闭')
       isConnected.value = false
-    }
+    })
     
-    socket.value.onerror = (error) => {
-      console.error('WebSocket连接错误:', error)
+    socket.value.on('connect_error', (error: any) => {
+      console.error('Socket.io连接错误:', error)
       isConnected.value = false
-    }
+    })
   } catch (error) {
-    console.error('初始化WebSocket连接失败:', error)
+    console.error('初始化Socket.io连接失败:', error)
     isConnected.value = false
   }
 }
@@ -215,28 +222,46 @@ const audioCaptureService = ref<AudioCaptureService | null>(null)
 // 开始录音
 const startRecording = async () => {
   if (!socket.value || !isConnected.value) {
-    ElMessage.error('WebSocket连接未建立，无法开始录音')
+    ElMessage.error('Socket.io连接未建立，无法开始录音')
     return
   }
   
   try {
     // 发送开始录音命令
-    socket.value.send(JSON.stringify({
-      type: 'start_recording',
-      payload: { session_id: props.id }
-    }))
+    console.log('发送start_recording事件:', { session_id: props.id })
+    socket.value.emit('start_recording', { session_id: props.id })
     
     // 初始化音频捕获服务
     audioCaptureService.value = new AudioCaptureService(socket.value)
     
-    // 开始音频捕获
-    await audioCaptureService.value.startCapture()
+    // 开始音频捕获，添加回调监听音频数据和音量
+    await audioCaptureService.value.startCapture((audioData, volume) => {
+      console.log('音频数据捕获成功:', audioData.length, '字节', '音量:', volume)
+      
+      // 语音检测：根据音量大小判断是否有语音活动
+      // 音量阈值，超过这个值表示检测到语音
+      const volumeThreshold = 0.01
+      if (volume > volumeThreshold) {
+        isVoiceDetected.value = true
+        
+        // 清除之前的超时，设置新的超时
+        if (voiceDetectionTimeout.value) {
+          clearTimeout(voiceDetectionTimeout.value)
+        }
+        // 500ms后恢复正常状态，使抖动效果更灵敏
+        voiceDetectionTimeout.value = window.setTimeout(() => {
+          isVoiceDetected.value = false
+        }, 500)
+      }
+    })
+    
+    console.log('录音已开始，等待转写结果...')
     
     isRecording.value = true
     meetingStore.startRecording()
     
     ElMessage.success('录音已开始')
-    console.log('开始录音')
+    console.log('开始录音完成')
   } catch (error: any) {
     ElMessage.error('获取麦克风权限失败或录音初始化失败')
     console.error('开始录音失败:', error)
@@ -252,10 +277,7 @@ const stopRecording = () => {
   }
   
   // 发送停止录音命令
-  socket.value?.send(JSON.stringify({
-    type: 'stop_recording',
-    payload: { session_id: props.id }
-  }))
+  socket.value?.emit('stop_recording', { session_id: props.id })
   
   isRecording.value = false
   meetingStore.stopRecording()
@@ -402,8 +424,6 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .meeting {
-  max-width: 1200px;
-  margin: 0 auto;
   padding: 20px;
 }
 
@@ -423,25 +443,34 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
+  height: calc(100vh - 150px);
 }
 
-.transcription-area {
-  background-color: #f5f5f5;
-  padding: 20px;
+.transcription-area,
+.ai-analysis-area {
+  background: #f5f5f5;
   border-radius: 8px;
+  padding: 15px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .transcription-container {
-  max-height: 500px;
+  flex: 1;
   overflow-y: auto;
   margin-top: 10px;
+  padding: 10px;
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .speech-item {
-  margin: 10px 0;
-  padding: 10px;
-  background-color: white;
+  margin-bottom: 10px;
+  padding: 8px;
   border-radius: 4px;
+  background: #f9f9f9;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -449,54 +478,43 @@ onBeforeUnmount(() => {
 
 .speaker-name {
   font-weight: bold;
-  margin-right: 10px;
+  min-width: 80px;
 }
 
 .speech-content {
   flex: 1;
-  word-break: break-all;
-}
-
-.ai-analysis-area {
-  background-color: #f5f5f5;
-  padding: 20px;
-  border-radius: 8px;
-}
-
-.ai-prompt {
-  text-align: center;
-  color: #999;
-  margin-top: 20px;
-}
-
-.selected-speech {
-  margin-bottom: 20px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #eee;
-}
-
-.ai-result h3 {
-  margin-top: 15px;
-  margin-bottom: 5px;
-  color: #333;
-}
-
-.ai-result p {
-  margin-bottom: 15px;
-  line-height: 1.6;
+  word-wrap: break-word;
 }
 
 .empty-transcription {
   text-align: center;
   color: #999;
-  padding: 40px 0;
+  padding: 50px 0;
+}
+
+.ai-prompt {
+  text-align: center;
+  color: #999;
+  padding: 50px 0;
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin-top: 10px;
+}
+
+.selected-speech {
+  margin-bottom: 20px;
+  padding: 10px;
+  background: #f0f9ff;
+  border-radius: 4px;
+  border-left: 4px solid #1890ff;
 }
 
 .ai-settings {
-  margin: 20px 0;
-  padding: 15px;
-  background-color: #f5f5f5;
-  border-radius: 8px;
+  margin-bottom: 20px;
+  padding: 10px;
+  background: #f9f9f9;
+  border-radius: 4px;
 }
 
 .ai-model-select {
@@ -505,38 +523,72 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
-.ai-model-select span {
-  font-weight: bold;
-}
-
 .ai-result {
-  margin-top: 20px;
+  margin-top: 10px;
 }
 
 .analysis-content {
-  margin-top: 15px;
-}
-
-.analysis-content h3 {
-  margin-bottom: 10px;
-  color: #333;
-}
-
-.analysis-content p {
-  line-height: 1.6;
-  margin-bottom: 15px;
-}
-
-.analysis-content pre {
-  white-space: pre-wrap;
-  line-height: 1.6;
-  background-color: #f5f5f5;
-  padding: 15px;
+  margin-top: 10px;
+  padding: 10px;
+  background: white;
   border-radius: 4px;
-  overflow-x: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .ai-loading {
-  margin: 20px 0;
+  margin-top: 10px;
+}
+
+/* 麦克风图标样式 */
+.recording-indicator {
+  margin-right: 8px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.microphone-icon {
+  font-size: 16px;
+  transition: all 0.3s ease;
+}
+
+/* 录音状态样式 */
+.microphone-icon.recording {
+  color: #f56c6c;
+  animation: pulse 1s infinite;
+}
+
+/* 语音检测样式 */
+.microphone-icon.voice-detected {
+  color: #67c23a;
+  animation: shake 0.5s ease-in-out;
+}
+
+/* 脉冲动画 */
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 抖动动画 */
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20%, 60% {
+    transform: translateX(-5px);
+  }
+  40%, 80% {
+    transform: translateX(5px);
+  }
 }
 </style>

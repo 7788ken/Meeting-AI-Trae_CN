@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Session, SessionDocument } from '../models/session.model';
 
 @Injectable()
 export class SessionsService {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(@InjectModel(Session.name) private sessionModel: Model<SessionDocument>) {}
 
   /**
    * 创建会话
@@ -13,15 +15,14 @@ export class SessionsService {
     recording_quality: string;
     transcription_language: string;
   }) {
-    return this.prismaService.session.create({
-      data: {
-        name: data.name,
-        recording_quality: data.recording_quality,
-        transcription_language: data.transcription_language,
-        status: 'active',
-        created_at: new Date(),
-      },
+    const session = new this.sessionModel({
+      name: data.name,
+      recording_quality: data.recording_quality,
+      transcription_language: data.transcription_language,
+      status: 'active',
+      created_at: new Date(),
     });
+    return session.save();
   }
 
   /**
@@ -37,28 +38,17 @@ export class SessionsService {
     const page_size = params?.page_size || 20;
     const skip = (page - 1) * page_size;
 
-    const where: any = {};
+    const query: any = {};
     if (params?.status) {
-      where.status = params.status;
+      query.status = params.status;
     }
     if (params?.keyword) {
-      where.name = {
-        contains: params.keyword,
-      };
+      query.name = { $regex: params.keyword, $options: 'i' };
     }
 
     const [data, total] = await Promise.all([
-      this.prismaService.session.findMany({
-        where,
-        skip,
-        take: page_size,
-        orderBy: {
-          created_at: 'desc',
-        },
-      }),
-      this.prismaService.session.count({
-        where,
-      }),
+      this.sessionModel.find(query).skip(skip).limit(page_size).sort({ created_at: -1 }),
+      this.sessionModel.countDocuments(query),
     ]);
 
     return {
@@ -73,22 +63,14 @@ export class SessionsService {
    * 获取会话详情
    */
   async getSessionDetail(id: string) {
-    return this.prismaService.session.findUnique({
-      where: {
-        id,
-      },
-    });
+    return this.sessionModel.findById(id);
   }
 
   /**
    * 结束会话
    */
   async endSession(id: string) {
-    const session = await this.prismaService.session.findUnique({
-      where: {
-        id,
-      },
-    });
+    const session = await this.sessionModel.findById(id);
 
     if (!session) {
       return null;
@@ -98,15 +80,10 @@ export class SessionsService {
       (new Date().getTime() - session.created_at.getTime()) / 1000
     );
 
-    return this.prismaService.session.update({
-      where: {
-        id,
-      },
-      data: {
-        status: 'ended',
-        ended_at: new Date(),
-        duration,
-      },
-    });
+    return this.sessionModel.findByIdAndUpdate(id, {
+      status: 'ended',
+      ended_at: new Date(),
+      duration,
+    }, { new: true });
   }
 }

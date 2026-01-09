@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import { SessionsService } from './sessions.service';
 import { SessionsController } from './sessions.controller';
-import { PrismaModule } from '../prisma/prisma.module';
+import { MongooseModule } from '@nestjs/mongoose';
+import { Session, SessionSchema } from '../models/session.model';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [MongooseModule.forFeature([{ name: Session.name, schema: SessionSchema }])],
   providers: [SessionsService],
   controllers: [SessionsController]
 })

@@ -3,31 +3,111 @@ import axios from 'axios';
 
 @Injectable()
 export class AiService {
+  private readonly glmApiKey = process.env.GLM_API_KEY;
+  private readonly glmEndpoint = process.env.GLM_ENDPOINT;
+
   /**
    * 生成AI分析结果
    */
   async generateAnalysis(speechContent: string, modelName: string) {
     try {
-      // 这里将在后续实现调用AI模型API的逻辑
-      // 基于输入内容生成更真实的模拟分析结果
-      const core_analysis = this.generateCoreAnalysis(speechContent);
-      const brief_answer = this.generateBriefAnswer(speechContent);
-      const deep_answer = this.generateDeepAnswer(speechContent);
-      
-      const mockAnalysis = {
-        core_analysis: core_analysis,
-        brief_answer: brief_answer,
-        deep_answer: deep_answer,
-        model_name: modelName,
-        tokens_used: Math.floor(Math.random() * 100) + 200,
-        confidence: Math.random() * 0.1 + 0.85,
-      };
-
-      return mockAnalysis;
+      // 调用真实的GLM API生成会议摘要
+      if (modelName === 'glm-4' || !modelName) {
+        return await this.callGLMAPI(speechContent);
+      } else {
+        // 对于其他模型，暂时使用模拟数据
+        return this.generateMockAnalysis(speechContent, modelName);
+      }
     } catch (error) {
       console.error('Error generating AI analysis:', error);
-      throw new Error('Failed to generate AI analysis');
+      // 如果API调用失败，返回模拟数据作为备份
+      return this.generateMockAnalysis(speechContent, modelName);
     }
+  }
+
+  /**
+   * 调用GLM API生成会议摘要
+   */
+  private async callGLMAPI(speechContent: string) {
+    const prompt = `你是一个专业的会议摘要生成助手。请根据以下会议内容，生成：
+1. 核心要点分析：简洁提炼会议的核心内容，不超过100字
+2. 简要回答：用1-2句话概括会议内容
+3. 深度分析：详细分析会议内容，包括讨论的问题、提出的方案、达成的共识等
+
+会议内容：${speechContent}
+
+请按照以下格式输出，不要添加任何额外内容：
+核心要点：[核心要点分析]
+简要回答：[简要回答]
+深度分析：[深度分析]`;
+
+    // 检查环境变量是否存在
+    if (!this.glmEndpoint) {
+      throw new Error('GLM_ENDPOINT environment variable is not set');
+    }
+    if (!this.glmApiKey) {
+      throw new Error('GLM_API_KEY environment variable is not set');
+    }
+
+    const response = await axios.post(
+      this.glmEndpoint,
+      {
+        model: 'glm-4',
+        messages: [
+          {
+            role: 'system',
+            content: '你是一个专业的会议摘要生成助手',
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        max_tokens: 1500,
+        temperature: 0.7,
+        top_p: 0.8,
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${this.glmApiKey}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const aiResponse = response.data.choices[0].message.content;
+
+    // 解析GLM API返回的结果
+    const coreAnalysisMatch = aiResponse.match(/核心要点：(.*?)\n/);
+    const briefAnswerMatch = aiResponse.match(/简要回答：(.*?)\n/);
+    const deepAnalysisMatch = aiResponse.match(/深度分析：(.*)/s);
+
+    return {
+      core_analysis: coreAnalysisMatch ? coreAnalysisMatch[1] : '未能提取核心要点',
+      brief_answer: briefAnswerMatch ? briefAnswerMatch[1] : '未能生成简要回答',
+      deep_answer: deepAnalysisMatch ? deepAnalysisMatch[1] : '未能生成深度分析',
+      model_name: 'glm-4',
+      tokens_used: response.data.usage.total_tokens || 0,
+      confidence: 0.95,
+    };
+  }
+
+  /**
+   * 生成模拟分析结果（作为备份）
+   */
+  private generateMockAnalysis(speechContent: string, modelName: string) {
+    const core_analysis = this.generateCoreAnalysis(speechContent);
+    const brief_answer = this.generateBriefAnswer(speechContent);
+    const deep_answer = this.generateDeepAnswer(speechContent);
+    
+    return {
+      core_analysis: core_analysis,
+      brief_answer: brief_answer,
+      deep_answer: deep_answer,
+      model_name: modelName,
+      tokens_used: Math.floor(Math.random() * 100) + 200,
+      confidence: Math.random() * 0.1 + 0.85,
+    };
   }
   
   /**

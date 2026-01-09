@@ -19,23 +19,20 @@ export const aiApi = {
    * 生成AI分析
    */
   analyzeSpeech: async (speechId: string, data: AnalyzeSpeechDto) => {
-    const response = await apiRequest.post<AIAnalysis>(`/speeches/${speechId}/analyze`, data)
-    return response.data
+    return await apiRequest.post<AIAnalysis>(`/speeches/${speechId}/analyze`, data)
   },
   
   /**
    * 获取发言的AI分析列表
    */
   getAnalysisList: async (speechId: string) => {
-    const response = await apiRequest.get<AIAnalysis[]>(`/speeches/${speechId}/analyses`)
-    return response.data
+    return await apiRequest.get<AIAnalysis[]>(`/speeches/${speechId}/analyses`)
   },
   
   /**
    * 获取支持的AI模型列表
    */
   getAIModels: async () => {
-    const response = await apiRequest.get<AIModel[]>('/ai/models')
-    return response.data
+    return await apiRequest.get<AIModel[]>('/ai/models')
   }
 }

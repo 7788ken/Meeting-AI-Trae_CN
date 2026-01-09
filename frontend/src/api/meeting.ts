@@ -12,8 +12,7 @@ export const meetingApi = {
    * 创建会议
    */
   createMeeting: async (data: CreateMeetingDto) => {
-    const response = await apiRequest.post<Meeting>('/sessions', data)
-    return response.data
+    return await apiRequest.post<Meeting>('/sessions', data)
   },
   
   /**
@@ -25,23 +24,20 @@ export const meetingApi = {
     status?: 'active' | 'ended'
     keyword?: string
   }) => {
-    const response = await apiRequest.get<{ total: number; page: number; page_size: number; data: Meeting[] }>('/sessions', { params })
-    return response.data
+    return await apiRequest.get<{ total: number; page: number; page_size: number; data: Meeting[] }>('/sessions', { params })
   },
   
   /**
    * 获取会议详情
    */
   getMeetingDetail: async (id: string) => {
-    const response = await apiRequest.get<Meeting>(`/sessions/${id}`)
-    return response.data
+    return await apiRequest.get<Meeting>(`/sessions/${id}`)
   },
   
   /**
    * 结束会议
    */
   endMeeting: async (id: string) => {
-    const response = await apiRequest.post<Meeting>(`/sessions/${id}/end`)
-    return response.data
+    return await apiRequest.post<Meeting>(`/sessions/${id}/end`)
   }
 }
